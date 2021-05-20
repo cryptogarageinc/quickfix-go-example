@@ -142,6 +142,18 @@ func (obj *PriceLogger) WriteQuoteMessage(quote *fix44quote.Quote) error {
 		timeData = time.Now().UTC()
 	}
 	timeString := timeData.Format("2006-01-02 15:04:05.000000")
+
+	quoteReqId, err := quote.GetQuoteReqID()
+	if err != nil {
+		return err
+	}
+	exchange := obj.Exchange
+	if quoteReqId == "BTC-4-0000000000004" {
+		exchange = exchange + "2"
+	} else if quoteReqId == "BTC-5-0000000000005" {
+		exchange = exchange + "3"
+	}
+
 	qty, err := quote.GetBidSize()
 	if err != nil {
 		return err
@@ -158,7 +170,7 @@ func (obj *PriceLogger) WriteQuoteMessage(quote *fix44quote.Quote) error {
 	floatBid, _ := bid.Float64()
 	floatOffer, _ := offer.Float64()
 
-	logStr := fmt.Sprintf("%d,%s,%s,%g,%f,%f\n", count, timeString, obj.Exchange, floatQty, floatBid, floatOffer)
+	logStr := fmt.Sprintf("%d,%s,%s,%g,%f,%f\n", count, timeString, exchange, floatQty, floatBid, floatOffer)
 	_, osError := obj.Handle.WriteString(logStr)
 	return osError
 }
