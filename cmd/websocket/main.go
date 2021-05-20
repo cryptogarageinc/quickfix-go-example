@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
 	"path"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	quickfix "github.com/cryptogarageinc/quickfix-go"
@@ -202,9 +204,11 @@ func GetQuoteRequestDatas(settings *quickfix.Settings) []QuoteRequestData {
 
 //Subscriber implements the quickfix.Application interface
 type Subscriber struct {
-	data    *SubscribeMessage
-	isDebug bool
-	logger  *PriceLogger
+	data       *SubscribeMessage
+	isDebug    bool
+	logger     *PriceLogger
+	isStartHub bool
+	hub        *websocket.Hub
 }
 
 //OnCreate implemented as part of Application interface
@@ -348,31 +352,26 @@ func main() {
 		return
 	}
 
-	quoteList := GetQuoteRequestDatas(appSettings)
-
 	// create a message hub
 	fmt.Printf("listen '%s'\n", *addr)
 	hub := websocket.NewHub()
 	go hub.Run()
+	app.hub = hub
+	app.isStartHub = true
 
 	// config websocket handler
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		websocket.ServeWs(hub, w, r)
 	})
 
-	go func() {
-		err := http.ListenAndServe(*addr, nil)
-		if err != nil {
-			panic(err)
-		}
-	}()
-
-	for {
-		for _, quoteData := range quoteList {
-			fmt.Printf("%d) Quote Request(%s)\n", quoteData.Index, quoteData.Symbol)
-			hub.Broadcast <- quoteData
-		}
+	err = http.ListenAndServe(*addr, nil)
+	if err != nil {
+		panic(err)
 	}
+
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM) // os.Kill
+	<-interrupt
 
 	initiator.Stop()
 }
