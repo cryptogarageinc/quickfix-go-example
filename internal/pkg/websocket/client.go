@@ -41,26 +41,26 @@ func (c *Client) writePump() {
 		select {
 		case message, ok := <-c.send:
 			fmt.Println("message incoming")
+			fmt.Printf("message: '%s'\n", message)
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
 				// The hub closed the channel.
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-
-			w, err := c.conn.NextWriter(websocket.TextMessage)
-			if err != nil {
-				fmt.Println("error next writer")
-				return
-			}
+	w, err := c.conn.NextWriter(websocket.TextMessage)
+	if err != nil {
+		fmt.Println("error next writer")
+		return
+	}
 			w.Write(message)
-
 			// Add queued chat messages to the current websocket message.
-			n := len(c.send)
-			for i := 0; i < n; i++ {
-				w.Write(newline)
-				w.Write(<-c.send)
-			}
+//			n := len(c.send)
+//			fmt.Printf("queue length: '%d'\n", n)
+//			for i := 0; i < n; i++ {
+//				w.Write(newline)
+//				w.Write(<-c.send)
+//			}
 
 			if err := w.Close(); err != nil {
 				fmt.Println("error close writer")

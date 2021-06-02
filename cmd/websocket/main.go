@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"encoding/json"
 	"net/http"
 	"os"
 	"os/signal"
@@ -23,6 +24,7 @@ import (
 	"github.com/cryptogarageinc/quickfix-go-examples/internal/pkg/websocket"
 )
 
+var srv http.Server
 var addr = flag.String("addr", ":8080", "http service address")
 
 type SubscribeMessage struct {
@@ -170,6 +172,61 @@ func (obj *PriceLogger) WriteQuoteMessage(quote *fix44quote.Quote) error {
 	return osError
 }
 
+type PriceMessage struct {
+	QuoteId      string  `json:"quote_id"`
+	TransactTime string  `json:"transact_time"`
+	Symbol       string  `json:"symbol"`
+	Size         float64 `json:"size"`
+	Bid          float64 `json:"bid"`
+	Offer        float64 `json:"offer"`
+}
+
+func NewPriceMessageFromQuote(quote *fix44quote.Quote) *PriceMessage {
+	quoteId, err := quote.GetQuoteID()
+	if err != nil {
+		fmt.Printf("GetQuoteID error: '%s'\n", err)
+		return nil
+	}
+	asset, err := quote.GetSymbol()
+	if err != nil {
+		fmt.Printf("GetSymbol error: '%s'\n", err)
+		return nil
+	}
+	timeData, err := quote.GetTransactTime()
+	if err != nil {
+		// if field is not found, use receive time.
+		timeData = time.Now().UTC()
+	}
+	timeString := timeData.Format("2006-01-02 15:04:05.000000")
+	qty, err := quote.GetBidSize()
+	if err != nil {
+		fmt.Printf("GetBidSize error: '%s'\n", err)
+		return nil
+	}
+	bid, err := quote.GetBidPx() // sell
+	if err != nil {
+		fmt.Printf("GetBidPx error: '%s'\n", err)
+		return nil
+	}
+	offer, err := quote.GetOfferPx() // ask
+	if err != nil {
+		fmt.Printf("GetOfferPx error: '%s'\n", err)
+		return nil
+	}
+	floatQty, _ := qty.Float64()
+	floatBid, _ := bid.Float64()
+	floatOffer, _ := offer.Float64()
+
+	return &PriceMessage{
+		QuoteId: quoteId,
+		TransactTime: timeString,
+		Symbol: asset,
+		Size: floatQty,
+		Bid: floatBid,
+		Offer: floatOffer,
+	}
+}
+
 type QuoteRequestData struct {
 	QuoteReqID, Symbol, Account string
 	Index                       int
@@ -279,6 +336,18 @@ func (e Subscriber) FromApp(msg *quickfix.Message, sessionID quickfix.SessionID)
 		if tmpErr != nil {
 			fmt.Printf("Logging error: %s\n", tmpErr)
 		}
+		priceMsg := NewPriceMessageFromQuote(&quoteData)
+		if priceMsg != nil {
+			priceJson, err := json.Marshal(priceMsg)
+			if err != nil {
+				fmt.Printf("Marshaling error: %s\n", err)
+				return
+			}
+			
+//			fmt.Printf("price json: '%s'\n", priceJson)
+			e.hub.Broadcast <- priceJson
+
+		}
 	} else if msgType == "j" {
 		fmt.Printf("BusinessMessageReject: %s\n", msg.String())
 	} else {
@@ -301,7 +370,7 @@ func (e Subscriber) queryQuoteRequestOrder(quoteReqID, symbol, account string) (
 
 func main() {
 	flag.Parse()
-
+	
 	cfgFileName := path.Join("config", "subscriber.cfg")
 	if flag.NArg() > 0 {
 		cfgFileName = flag.Arg(0)
@@ -323,9 +392,13 @@ func main() {
 		isDebug, _ = appSettings.GlobalSettings().BoolSetting("Debug")
 	}
 
+	// create a message hub
+	fmt.Printf("listen '%s'\n", *addr)
+	hub := websocket.NewHub()
+
 	appData := SubscribeMessage{setting: appSettings}
 	logger := NewPriceLogger(appSettings)
-	app := Subscriber{data: &appData, isDebug: isDebug, logger: logger}
+	app := Subscriber{data: &appData, isDebug: isDebug, logger: logger, hub: hub}
 	fileLogFactory, err := quickfix.NewFileLogFactory(appSettings)
 
 	if err != nil {
@@ -352,11 +425,7 @@ func main() {
 		return
 	}
 
-	// create a message hub
-	fmt.Printf("listen '%s'\n", *addr)
-	hub := websocket.NewHub()
-	go hub.Run()
-	app.hub = hub
+	go app.hub.Run()
 	app.isStartHub = true
 
 	// config websocket handler
