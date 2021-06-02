@@ -13,10 +13,12 @@ vet:
 build: clean
 	go build -v -o ./bin/publisher ./cmd/publisher
 	go build -v -o ./bin/subscriber ./cmd/subscriber
+	go build -v -o ./bin/wsserver ./cmd/websocket
 
 build_win: clean_win
 	go build -v -o ./bin/publisher.exe ./cmd/publisher
 	go build -v -o ./bin/subscriber.exe ./cmd/subscriber
+	go build -v -o ./bin/wsserver.exe ./cmd/websocket
 
 clean:
 	rm -rf ./bin ./tmp
